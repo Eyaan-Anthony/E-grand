@@ -1,0 +1,324 @@
+to begin, we had numerous discussions, in order to lock down how what will be done,
+the tech stack,
+the enginerring approach, etc etc.
+
+Then the extension on vscode, postgresql, python, docker, etc etc
+then we create two folders in the root directory,
+app
+and database
+in the database folder we create the init.sql file where we write down the foundational statements that will be executed automatically
+
+we also in the root directory, create the docker-compose>yml file, to package our app, to avoid environment consistency problems, so we don't necessarily need to install stuff
+Since we ran, initially, the docker compose file without the correct init.sql, we can restart the process
+by executing  docker compose down -v
+then executing docker compose up -d  to restart
+
+Once the containers are up and running, create python virtual environment and install necessary dependecies
+upgrade pip, fastapi, sqlalchemy (for asynch database calls), redis(for caching), etc
+the exact dependencies where : pip install fastapi uvicorn[standard] sqlalchemy asyncpg pydantic-settings redis structlog
+
+Note that we're using docker to make sure that the app works the same no matter the environment of the user, that's why we package it with all it's necessary components to isolate them, and deploy or host them as a unit.
+
+Then in the app folder, create a database.py and we'll create a connection there
+
+Quick recall, a database refers to the physical storage.
+we don't read or write from the disks. 
+So the database holds active data in the RAM or buffer
+so the data in the buffer is there, but not yet locked into permanent history on to the disk
+
+the architecture is like this
+python code -> sql session -> db buffer/RAM->hard disk
+
+so when creating an async_session
+flush means data moves from code to buffer
+
+commit means it's written into the disk
+
+so the database.py file, accoridng to the separation of concerns, handles only connections to the db
+along with session creation
+the get_db function for instance creates an asyncsession to the db, and awaits for a commit, before the connection is closed
+so for the mapping of python classes to the sql tables, we have to define a models.py file that will contain ORMs
+
+I had some trouble correctly understanding the relationships class in ORMs, as well as parameters like back_populates, but they essentially permit to bypass sql queries by facilitating navigation between objects by linking them
+
+Now we can move to phase 3 that involves the building of API endpoints, along with the integration of redis
+"To make our backend clean, scalable, and easy to maintain as it grows, we won't throw all our code into a single massive file.
+ We will use FastAPI's APIRouter modular pattern."
+
+**Read about docker fundamentals, images, containers (they execute images), volumes, isolation, docker objects, etc
+
+Also, read about fastapi fundamentals too, what are routers, what are best practices
+Also practice more endpoint creation please
+for fastapi it is built over starlette and pydantic (pydantic is for data validation)
+generally, it is not a good idea to store all of your endpoints in a single main.py
+instead group routes by euh, some kind of common domain. In our project for instances
+we will have a products.py file and an inventory.py file to separate the different endpoints
+
+APIROUTER helps define a suffix for the specific domain
+
+to run our fastapi app use :  uvicorn app.main:app --reload
+
+i tried writing my first hand made api endpoint myself today. for adding stores to the db
+what i need to keep in mind is : Never use Python f-strings to inject user data directly into raw SQL strings. It opens your database up to SQL injection attacks. Instead, use SQLAlchemy's parameterized dictionary binding (passing variables securely through db.execute(query, params))
+
+to reinitialize our docker containers, use the docker compose down -v command to wipe them
+and the docker compose up -d command to rebuild them
+
+to wipe all container related data use : # 1. Stop containers and explicitly remove all volumes and orphans
+docker compose down -v --remove-orphans
+
+to check volumes 
+2. Check if any old docker volumes are lingering around
+docker volume ls
+
+Also always run the app befor api endpoint testing
+
+Also when creating the db container using postgresql, make sure there is only one postgresql on the device
+else you will be facing a missmatch issue since the container won't point to the one you want
+
+I also had an issue because apparently running the compose up command didn't automatically execute the init.sql file. so we had to do it manually via the terminal using the commands
+Get-Content database/init.sql | docker exec -i esanta_postgres psql -U esanta_admin -d esanta_db  
+to create the tables 
+or the command 
+docker exec -it esanta_postgres psql -U esanta_admin -d esanta_db -c "DROP TABLE IF EXISTS store_inventory, stores, products CASCADE;" to drop them
+our add_stores endpoint now works correctly!  
+i defined the add_products endpoint too, works correctly
+#then add delete product, edit product endpoints etc etc
+#i was also thinking about modifying the product part of this, add a sales attribute
+#if sales then new price is what, check new price is less than original price, now maybe add
+#a sales duration too, so that it automatically sets the original price back to normal,
+
+other important endpoints are :
+Products Router:
+
+GET /products/: List all products with pagination and filtering (e.g., by category, or filter only active sales). (done, with pagination too)
+
+GET /products/{product_id}: Get details for a single product. (done)
+
+PUT /products/{product_id}: Edit product details or toggle sales. (done)
+
+DELETE /products/{product_id}: Remove a product from the catalog.(done)
+
+Stores & Inventory Router:
+
+GET /stores/{store_id}/inventory: Check live stock levels for a specific store branch (crucial for knowing if Bonamoussadi has stock of a specific item vs. Bali). (done)
+
+POST /stores/{store_id}/inventory: Add or update stock quantities for products at a specific location.
+
+##################
+I was thinking, as an evolution, the possibility to define campaign periods
+so we give the campaign a name,
+a duration, 
+and how it is implemented daily for the duration of the campaign,
+are there going to be sales daily? 24h a day? or are there specific time slots for the sales to be effective
+for update and delete statements it's important to commit, if you set the auto-flush of the db to false
+also implement a database.rollback() so that 
+
+
+#########
+for caching, we created redis client in a redis_client.py file, and we defined three basic functions in
+there, keep in mind all the functions are async functions.
+We defined three functions, set to cache, get from cache and invalidate cache.
+Now implementing them smartly was kinda tough tho, because i had to know when to set
+what to set, when to invalidate, etc etc
+Keep in mind that the approach may change once we add in multiple providers
+i'll expand a little on this later.
+
+phase 4
+The Blueprint for Phase 4 (Order & Checkout Engine)
+To build out this phase cleanly, we will tackle it in three focused steps:
+
+Step 1: The Cart & Validation Endpoint (POST /cart/validate)
+
+Takes a list of items (product IDs and quantities).
+
+Queries Postgres/Redis to verify live prices, active sales, and stock availability.
+
+Calculates subtotal, service fees, and grand total.
+
+Step 2: The Checkout & Concurrency Engine (POST /checkout/process)
+
+Implements database transactions (BEGIN / COMMIT / ROLLBACK).
+
+Handles atomic stock decrement (ensuring no negative inventory).
+
+Simulates or integrates the payment gateway callback.
+
+Step 3: Post-Payment Pipeline & Invalidation
+
+Wipes the user's Redis cart.
+
+Invalidates store inventory caches because stock levels just dropped.
+
+Logs the successful order.
+
+
+Before we even write the cart validation loigc, we need to understand the flow here
+user adds items to cart, each product added to cart, has product_id, product_name,_product_description,
+store_id, quanity, uniform price
+here we are going to write a sql transaction
+
+So we made massive progress with this here mate, but i'll write down the different questions i ask myself as i progress. So, we defined that tho caching idempotency keys is a good idea, redis can crash, and i have to write my endpoints with that in mind, so we decided to make the whole process stateful. Note that the client is the one to generate the key, the server just has to validate the key and make sure the transactions are not processed twice. The proposed flow that seems to be interesting is : 
+user starts checkout
+create payment attempt
+generate idempotency key
+user clicks pay
+send key
+retry if necessary
+
+Now i was also asking myself if it was a good idea to cache each idempotency key individually, or just retrieve the whole list from the orders ID, and then get the key from there, basically the two options are viable, 100k+ transactions per day are not a problem for redis, and it depends on how much data is cached, and the ttl of the data in the cache
+
+I think it's better to cache each one individually, because else we have to retrieve the whole list from the cache even if the key is not even in there, it's not a huge waste of time for sure, but it's still a waste of time doesn't it?
+
+because now, we need to think about the strategy here, do we get the most amount of inventory possible from the nearest store if available? from a logistics perspective this makes the most amount of sense.
+if more is needed, get from second nearest store and so on and so forth?
+this makes delivery easier, and if the item he needs is from the furthest store away from him?
+so it's not just distance, it's also stock availability.
+
+#if there is more optimal way to do this, we can change it
+
+
+
+
+
+
+
+(we can get multiple results here)
+when user validates cart, we check if the inventory allows for the bill to be processed, by checking the inventory table, where product_id = cart.product_id
+if quantity - cart.quantity >= 0 
+    then send this payment request to payment service. 
+
+Man,after discussing with chatgpt that seems to be more much realistic, i realise i have missed a lot of stuff when thinking about the architecture, what we're building would be a disaster in production,
+so we're going to rethink a little bit all of our architecture, and be much cleaner and smart about how we do stuff.
+The business model remains the same, but there are going to be some variations, about how stock is deducted according to what criteria, and delivery is going to be an evolution tho, also we're going to include analytics directly,
+note that it's important to observe how the clients behave, but it's also important to note how retailers themselves behave, so we can accurately pinpoint causation and correlation, etc etc.
+
+So we're going to rego through the conception phase of this
+we're going to construct user stories, and breakdown these stories under themes i guess
+like take a look :
+Discovery
+Search products using names/keywords
+filter using price ranges
+filter using retailers,
+filter using category
+filter using availability in stock
+filter by sales or  not
+sort by price, relevance, popularity, relevance, newest
+view product details
+view product images
+see retailer associated with product
+see promotional price vs normal price, 
+see date of end of promotion,
+see product availability
+
+Shopping
+add to cart
+remove from cart
+validate cart
+see total
+see subtotal
+see service/delivery fees
+cancel cart
+view order status
+view previous orders (specifically valid for users that login)
+receive confirmation of order
+NB: 
+order here is a validated cart that is submitted for payment
+(clarify difference between cart and order)
+a cart is just collection of desired items
+
+Admin dashboard (analytics admins see)
+my admin tho, will see all of this,
+so for retailers, we will just remove some functionalities
+
+Sales/orders (per retailer, i don't know if it's useful to do per store on this)
+total orders
+completed orders
+canceled orders
+pending orders
+orders by retailers
+orders by category
+average basket value
+average basket size
+revenue generated
+service fee revenue
+periodic revenue (day, week, month, year)
+order conversion rate (how many carts get converted to orders)
+cart abandonment rate
+
+Product analytics
+most viewed products
+most purchased products
+most added to cart (irrespective of if it's actually bought)
+viewed but not purchased products
+added to cart but removed products
+high conversion rate products
+low conversion rate products
+frequently removed from cart products
+time to conversion (average)
+frequently searched products but unavailable
+
+Search analytics
+number of searches
+most searched
+most searched categories
+searches by retailer
+searches resulting to product click
+searches resulting to add to cart
+searches resulting to purchases
+searches with zero result
+search to purchase average time
+search to purchase conversion rate
+
+
+Customer analytics
+registered users (this is tricky)
+active users 
+new users
+returning users
+orders per customer
+average customer lifetime value (value generated throughout his whole lifetime?)
+average basket value per customer (average value of all his baskets)
+purchase frequency
+customer retention
+repeat purchase rate
+customer acquisition source (where did he come from?, can we know that?)
+most active customers?
+
+retailers analytics
+product listed
+products viewed
+products searched
+products added to cart
+products purchased
+orders received
+completed orders
+cancelled orders
+average basket value with their products
+product conversion rate
+best-selling products (most frequently bought)
+most viewed
+products with high views but low purchases
+out of stock products
+products searched but not available
+
+
+from platform view
+retailer gmv value
+orders per retailer
+conversion rate per retailer
+average basket per retailer
+product availability
+cancellation rate
+customer engagement
+number of visits on the website too
+
+
+So, once we're sufficiently big, we will implement a micro service architecture
+but for the beginning, we're going to do a simple modular monolithic architecture
+where we have a catalog module, cart/order module, analytics module
+
+Note that user doesn't have to login to shop
+so other options include stuff like cookie storage, or local session storage
+
+

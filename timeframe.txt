@@ -1,0 +1,49 @@
+Phase 1: Infrastructure & Data Layer (Where we are now)Container Orchestration: 
+Spin up PostgreSQL + PostGIS and Redis using Docker Compose.
+Schema Definition: Auto-execute the init.sql to map out our normalized tables and
+ GiST spatial indexes.
+ 
+ Phase 2: Python Environment & ORM Setup (Next Step)Virtual 
+ Environment: Set up a clean Python venv and install our stack: fastapi, 
+ sqlalchemy[asyncio] (for async database calls), asyncpg 
+ (the high-performance Postgres driver), pydantic (for data validation),
+  and redis.  Database Engine: Write the database.py file to establish an 
+  asynchronous connection pool between FastAPI and PostgreSQL.  ORM Models:
+   Map our SQL tables (Products, Stores, StoreInventory) into SQLAlchemy 
+   Python classes so we can query them without writing raw SQL strings
+    everywhere.
+    
+  Phase 3: The Core API & Proximity LogicThe Spatial Route:
+     Build an endpoint (/stores/nearest) where a mobile device sends its 
+     coordinates (Longitude/Latitude), and our backend queries the PostGIS 
+     database to instantly return the closest Santa Lucia store.The Catalog
+      Route: Build the /products endpoint that strictly filters items based
+       on the user's nearest store (implementing the "Geofenced Local-Hub Model"
+        we agreed on for user trust).Caching: Integrate Redis into the Catalog
+         route so frequent queries (e.g., "Show me all milk products in Bonamoussadi")
+          load in milliseconds without hitting PostgreSQL.
+          
+      Phase 4: Concurrency &
+           The Checkout Engine (The Hard Part)Cart Validation: 
+          Build the endpoint to calculate totals and estimate delivery distances.
+          The Transaction Ledger: Write the ACID-compliant checkout logic using 
+          explicit PostgreSQL row locks (SELECT ... FOR UPDATE). 
+          We will simulate two users trying to buy the last Nido milk at the 
+          same exact millisecond to ensure our system doesn't crash or sell
+           negative inventory.Financial Cuts: Integrate the 3-5% platform fee
+            calculation at the exact moment of order validation.
+            
+    Phase 5:
+             Analytics, Dashboards & Background JobsAdmin Aggregations:
+              Create read-only dashboard endpoints to calculate metrics 
+              ("most bought items," "revenue per region").Cron Jobs: Write
+               an asynchronous background task (e.g., using APScheduler or 
+               FastAPI's background tasks) that runs at midnight to calculate 
+               daily profits and reset expired carts.
+               
+    Phase 6: Final Polish & 
+               Portfolio ReadinessLogging: Implement structured JSON logging 
+               using structlog so you can track errors like a pro.Git Versioning:
+                Initialize Git, write a killer README.md complete with an
+                 architecture diagram, 
+and commit the code so you can attach it to your job applications for Perenco or RTC Douala.
